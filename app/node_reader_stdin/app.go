@@ -17,7 +17,6 @@ package node_reader_stdin
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"os"
 
 	"github.com/streamingfast/bstream/blockstream"
@@ -137,28 +136,13 @@ func (a *App) Run() error {
 		maxLineLength = 50 * 1024 * 1024
 	}
 
-	stdin := bufio.NewReaderSize(os.Stdin, int(maxLineLength))
+	scanner := bufio.NewScanner(os.Stdin)
+	scanner.Buffer(make([]byte, int(maxLineLength)), int(maxLineLength))
 
 	go func() {
 		a.zlogger.Info("starting stdin consumption loop")
-		for {
-			in, _, err := stdin.ReadLine()
-			if err != nil {
-				if err != io.EOF {
-					a.zlogger.Error("got an error from while trying to read a line", zap.Error(err))
-					mindreaderLogPlugin.Shutdown(err)
-					return
-				}
-
-				// We are in the case here where `err == io.EOF`
-				if len(in) == 0 {
-					a.zlogger.Info("done reading from stdin")
-					return
-				}
-
-				a.zlogger.Debug("got io.EOF on stdin, but still had data to send")
-			}
-			line := string(in)
+		for scanner.Scan() {
+			line := scanner.Text()
 
 			if logPlugin != nil {
 				logPlugin.LogLine(line)
@@ -166,6 +150,14 @@ func (a *App) Run() error {
 
 			mindreaderLogPlugin.LogLine(line)
 		}
+
+		if err := scanner.Err(); err != nil {
+			a.zlogger.Error("got an error from while trying to read a line", zap.Error(err))
+			mindreaderLogPlugin.Shutdown(err)
+			return
+		}
+
+		a.zlogger.Info("done reading from stdin")
 	}()
 
 	return nil

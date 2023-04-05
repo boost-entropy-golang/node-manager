@@ -100,15 +100,15 @@ func NewMindReaderPlugin(
 	}
 
 	// local store
-	localOneBlocksDir := path.Join(workingDirectory, "uploadable-oneblock")
-	localOneBlocksStore, err := dstore.NewDBinStore(localOneBlocksDir)
+	localOnBlocksStoreURL := path.Join(workingDirectory, "uploadable-oneblock")
+	localOneBlocksStore, err := dstore.NewStore(localOnBlocksStoreURL, "dbin", "", false)
 	if err != nil {
-		return nil, fmt.Errorf("new localOneBlocksDir: %w", err)
+		return nil, fmt.Errorf("new local one block store: %w", err)
 	}
 
-	remoteOneBlocksStore, err := dstore.NewStore(oneBlocksStoreURL, "dbin.zst", "", false)
+	remoteOneBlocksStore, err := dstore.NewStore(oneBlocksStoreURL, "dbin.zst", "zstd", false)
 	if err != nil {
-		return nil, fmt.Errorf("new remoteOneBlocksStore: %w", err)
+		return nil, fmt.Errorf("new remote one block store: %w", err)
 	}
 
 	archiver := NewArchiver(
@@ -175,7 +175,7 @@ func (p *MindReaderPlugin) Launch() {
 }
 func (p *MindReaderPlugin) launch() {
 	blocks := make(chan *bstream.Block, p.channelCapacity)
-	p.zlogger.Debug("launching consume read flow", zap.Int("capacity", p.channelCapacity))
+	p.zlogger.Info("launching blocks reading loop", zap.Int("capacity", p.channelCapacity))
 	go p.consumeReadFlow(blocks)
 
 	go func() {
@@ -232,10 +232,9 @@ func (p *MindReaderPlugin) consumeReadFlow(blocks <-chan *bstream.Block) {
 		if !ok {
 			p.zlogger.Info("all blocks in channel were drained, exiting read flow")
 			p.archiver.Shutdown(nil)
-			select {
-			case <-p.archiver.Terminated():
-				p.zlogger.Info("archiver Terminate done")
-			}
+
+			<-p.archiver.Terminated()
+			p.zlogger.Info("archiver termination code completed")
 
 			return
 		}
@@ -269,10 +268,10 @@ func (p *MindReaderPlugin) consumeReadFlow(blocks <-chan *bstream.Block) {
 		if p.blockStreamServer != nil {
 			err = p.blockStreamServer.PushBlock(block)
 			if err != nil {
-				p.zlogger.Error("failed passing block to blockStreamServer (this should not happen, shutting down)", zap.Error(err))
+				p.zlogger.Error("failed passing block to block stream server (this should not happen, shutting down)", zap.Error(err))
 
 				if !p.IsTerminating() {
-					go p.Shutdown(fmt.Errorf("blockstreamserver failed: %w", err))
+					go p.Shutdown(fmt.Errorf("block stream push block failed: %w", err))
 				}
 
 				continue
@@ -313,9 +312,9 @@ func (p *MindReaderPlugin) readOneMessage(blocks chan<- *bstream.Block) error {
 	blocks <- block
 
 	if p.stopBlock != 0 && block.Num() >= p.stopBlock && !p.IsTerminating() {
-		p.zlogger.Info("shutting down because requested end block reached", zap.Uint64("block_num", block.Num()))
+		p.zlogger.Info("shutting down because requested end block reached", zap.Stringer("block", block))
 
-		// See command tagged with 0a33f6b578cc4d0b
+		// See comment tagged 0a33f6b578cc4d0b
 		go p.Shutdown(nil)
 	}
 
@@ -327,9 +326,20 @@ func (p *MindReaderPlugin) LogLine(in string) {
 	if p.IsTerminating() {
 		return
 	}
+
 	p.lines <- in
 }
 
 func (p *MindReaderPlugin) OnBlockWritten(callback nodeManager.OnBlockWritten) {
 	p.onBlockWritten = callback
+}
+
+// GetMindreaderLineChannel is a marker method that `superviser.Superviser` uses to determine if
+// `logplugin.LogPlugin` is an actual mindreader plugin without depending on the `mindreader`
+// package in which case it would create an import cycle.
+//
+// The `superviser.Superviser` defines `type mindreaderPlugin interface { GetMindreaderLineChannel() chan string }`
+// which is respected. This is a trick to avoid circual dependency in imports.
+func (p *MindReaderPlugin) GetMindreaderLineChannel() chan string {
+	return p.lines
 }
