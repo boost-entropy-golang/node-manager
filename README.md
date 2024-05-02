@@ -2,6 +2,9 @@
 [![reference](https://img.shields.io/badge/godoc-reference-5272B4.svg?style=flat-square)](https://pkg.go.dev/github.com/streamingfast/manageos)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
+> [!IMPORTANT]
+> The code has moved to [firehose-core](https://github.com/streamingfast/firehose-core/tree/develop/node-manager), this repository still exists in read-only form so that older dependencies still resolves correctly.
+
 This service is a wrapping process that operates blockchain nodes as part of **[StreamingFast](https://github.com/streamingfast/streamingfast)**.
 
 ## Installation
